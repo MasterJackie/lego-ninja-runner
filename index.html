@@ -22,6 +22,7 @@
           <div id="lives" class="lives"></div>
           <div id="skill" class="skill ready">
             <span id="skillName">技能</span>
+            <span id="skillCount" class="count">×1</span>
             <span id="skillKey">SHIFT</span>
           </div>
         </div>
@@ -30,25 +31,56 @@
       <!-- 菜单 -->
       <div id="menu" class="overlay">
         <h1 class="title">乐高忍者<span>跑酷</span></h1>
-        <p class="subtitle">选择你的忍者，出发！</p>
+        <p class="subtitle">选择你的忍者与难度，出发！</p>
         <div class="cards">
           <div class="card water" data-kind="water">
             <canvas class="preview" width="120" height="120"></canvas>
             <div class="cname">水系忍者</div>
-            <div class="cskill">❄ 冰桥</div>
+            <div class="cskill">冰桥</div>
             <div class="cdesc">短时间无敌，穿越一切障碍</div>
           </div>
           <div class="card fire" data-kind="fire">
             <canvas class="preview" width="120" height="120"></canvas>
             <div class="cname">火系忍者</div>
-            <div class="cskill">🔥 火球</div>
+            <div class="cskill">火球</div>
             <div class="cdesc">发射火球，焚毁前方所有障碍</div>
           </div>
+          <div class="card life" data-kind="life">
+            <canvas class="preview" width="120" height="120"></canvas>
+            <div class="cname">生命系忍者</div>
+            <div class="cskill">生命光球</div>
+            <div class="cdesc">发射光球，摧毁前方障碍</div>
+          </div>
+          <div class="card ice" data-kind="ice">
+            <canvas class="preview" width="120" height="120"></canvas>
+            <div class="cname">冰系忍者</div>
+            <div class="cskill">冰冻地面</div>
+            <div class="cdesc">冰封跑道，加速并无视伤害</div>
+          </div>
+          <div class="card earth" data-kind="earth">
+            <canvas class="preview" width="120" height="120"></canvas>
+            <div class="cname">土系忍者</div>
+            <div class="cskill">地面隆起</div>
+            <div class="cdesc">顶飞本赛道前方障碍</div>
+          </div>
+          <div class="card lightning" data-kind="lightning">
+            <canvas class="preview" width="120" height="120"></canvas>
+            <div class="cname">电系忍者</div>
+            <div class="cskill">枝状闪电</div>
+            <div class="cdesc">释放闪电，清理前方障碍</div>
+          </div>
+        </div>
+        <div class="diffs">
+          <span class="diff-label">难度</span>
+          <button class="diff" data-diff="easy">简单<em>5 次技能</em></button>
+          <button class="diff" data-diff="normal">普通<em>3 次技能</em></button>
+          <button class="diff" data-diff="hard">困难<em>1 次技能</em></button>
         </div>
         <button id="startBtn" class="btn">开始游戏 (Enter)</button>
         <div class="help">
-          <b>操作：</b> ← → / A D 变道 · ↑ / 空格 跳跃 · ↓ / S 滑铲 · Shift / J 技能（每局限 1 次）<br />
-          <b>手机：</b> 左右滑动变道 · 上滑跳跃 · 下滑滑铲 · 双击屏幕释放技能
+          <b>操作：</b> ← → / A D 变道 · ↑ / 空格 跳跃 · ↓ / S 滑铲 · Shift / J 技能<br />
+          <b>手机：</b> 左右滑动变道 · 上滑跳跃 · 下滑滑铲 · 双击屏幕释放技能<br />
+          <b>难度：</b> 简单 5 次技能 / 普通 3 次 / 困难 1 次，难度越高速度与障碍密度越大
         </div>
       </div>
 
@@ -101,6 +133,19 @@
       });
       document.querySelector('.card.water').classList.add('sel');
 
+      // 难度选择
+      const diffBtns = document.querySelectorAll('.diff');
+      function refreshDiff() {
+        diffBtns.forEach((b) => b.classList.toggle('sel', b.dataset.diff === game.difficulty));
+      }
+      diffBtns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          game.difficulty = btn.dataset.diff;
+          refreshDiff();
+        });
+      });
+      refreshDiff();
+
       $('startBtn').onclick = () => game.start();
       $('retryBtn').onclick = () => game.start();
       $('menuBtn').onclick = () => { game.state = 'menu'; };
@@ -124,6 +169,7 @@
         // 技能
         const sk = $('skill');
         $('skillName').textContent = s.def.skillName;
+        $('skillCount').textContent = '×' + s.skillLeft;
         sk.classList.toggle('ready', s.skillReady);
         sk.classList.toggle('used', !s.skillReady);
         sk.classList.toggle('active', s.skillActive);

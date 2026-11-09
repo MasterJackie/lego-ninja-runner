@@ -40,9 +40,10 @@ const laneX = (lane) => (lane - 1) * CFG.laneW; // 0,1,2 → -120, 0, +120
  * 玩家 Player —— 三车道 + 跳跃 + 滑铲
  * ========================================================= */
 class Player {
-  constructor(kind) {
+  constructor(kind, skillUses = 1) {
     this.kind = kind;
     this.def = NINJAS[kind];
+    this.skillMax = skillUses;
     this.reset();
   }
   reset() {
@@ -54,7 +55,7 @@ class Player {
     this.state = 'run';
     this.slideTimer = 0;
     this.invuln = 0;
-    this.skillUsed = false;
+    this.skillLeft = this.skillMax;
     this.skillTimer = 0;
     this.animT = 0;
   }
@@ -107,7 +108,9 @@ class Player {
     if (this.invuln > 0) this.invuln--;
     if (this.skillTimer > 0) {
       this.skillTimer--;
-      if (this.kind === 'water' && this.animT % 2 === 0) game.spawnIce(this.laneX, CFG.playerZ, this.y);
+      if ((this.kind === 'water' || this.kind === 'ice') && this.animT % 2 === 0) {
+        game.spawnIce(this.laneX, CFG.playerZ, this.y);
+      }
     }
   }
 
@@ -115,16 +118,15 @@ class Player {
   isJumping() { return !this.onGround && this.y > CFG.jumpClearY; }
   isSliding() { return this.state === 'slide'; }
 
+  // 冰系冰冻地面期间自身加速
+  get speedMult() {
+    return this.kind === 'ice' && this.skillTimer > 0 ? 1.5 : 1;
+  }
+
   useSkill(game) {
-    if (this.skillUsed) return false;
-    this.skillUsed = true;
-    if (this.kind === 'water') {
-      this.skillTimer = this.def.skillFrames;
-      game.flash('#bfe9ff', 0.35);
-    } else {
-      game.spawnFireball(this.laneX, CFG.playerZ, 40);
-      game.flash('#ffb347', 0.3);
-    }
+    if (this.skillLeft <= 0) return false;
+    this.skillLeft--;
+    game.castSkill(this);
     return true;
   }
 
@@ -156,13 +158,13 @@ class Player {
       ctx.fill();
       ctx.restore();
     }
-    // 冰桥光环
-    if (this.skillTimer > 0 && this.kind === 'water') {
+    // 冰桥 / 冰冻光环
+    if (this.skillTimer > 0 && (this.kind === 'water' || this.kind === 'ice')) {
       ctx.save();
       ctx.globalAlpha = 0.5 + 0.2 * Math.sin(this.animT * 0.3);
       const g = ctx.createRadialGradient(proj.sx, proj.sy - 30 * s, 4 * s, proj.sx, proj.sy - 30 * s, 55 * s);
-      g.addColorStop(0, 'rgba(180,230,255,0.9)');
-      g.addColorStop(1, 'rgba(120,200,255,0)');
+      g.addColorStop(0, this.kind === 'ice' ? 'rgba(255,255,255,0.95)' : 'rgba(180,230,255,0.9)');
+      g.addColorStop(1, this.kind === 'ice' ? 'rgba(190,240,255,0)' : 'rgba(120,200,255,0)');
       ctx.fillStyle = g;
       ctx.beginPath();
       ctx.arc(proj.sx, proj.sy - 30 * s, 55 * s, 0, Math.PI * 2);
@@ -180,19 +182,74 @@ class Player {
     const t = this.animT;
     if (this.state === 'jump') {
       const jp = this.jumpProgress();
-      if (this.kind === 'water') {
-        // 水系：腾空翻转一圈
-        return { type: 'jump', legSwing: 0.4, armSwing: -0.9, bodyAngle: Math.sin(jp * Math.PI) * Math.PI, crouch: 0, scarf: 1.5 };
+      switch (this.kind) {
+        case 'water':
+          // 水系：腾空翻转一圈
+          return { type: 'jump', legSwing: 0.4, armSwing: -0.9, bodyAngle: Math.sin(jp * Math.PI) * Math.PI, crouch: 0, scarf: 1.5 };
+        case 'fire':
+          // 火系：弹射后仰 + 双臂上举
+          return { type: 'jump', legSwing: 0.7, armSwing: -1.3, bodyAngle: -0.35, crouch: 0, scarf: 1.8 };
+        case 'life':
+          // 生命系：轻盈悬浮，双臂张开
+          return { type: 'jump', legSwing: -0.5, armSwing: -1.7, bodyAngle: 0.14, crouch: 0, scarf: 2.2 };
+        case 'ice':
+          // 冰系：空中舒展旋转
+          return { type: 'jump', legSwing: 0.2, armSwing: -1.0, bodyAngle: jp * Math.PI * 2, crouch: 0, scarf: 2.6 };
+        case 'earth':
+          // 土系：抱膝重跳
+          return { type: 'jump', legSwing: 1.5, armSwing: 1.2, bodyAngle: 0.55, crouch: 0, scarf: 1.3 };
+        default:
+          // 电系：高速前空翻
+          return { type: 'jump', legSwing: 0.8, armSwing: -1.4, bodyAngle: jp * Math.PI * 2, crouch: 0, scarf: 2.8 };
       }
-      // 火系：弹射后仰 + 双臂上举
-      return { type: 'jump', legSwing: 0.7, armSwing: -1.3, bodyAngle: -0.35, crouch: 0, scarf: 1.8 };
     }
     if (this.state === 'slide') {
-      // 滑铲：身体大幅前倾压低，腿前伸、臂后摆（与跳跃明显不同）
-      return { type: 'slide', legSwing: 1.3, armSwing: 1.4, bodyAngle: this.kind === 'fire' ? -0.78 : -0.62, crouch: 1, scarf: 2.3 };
+      switch (this.kind) {
+        case 'water':
+          return { type: 'slide', legSwing: 1.3, armSwing: 1.4, bodyAngle: -0.62, crouch: 1, scarf: 2.3 };
+        case 'fire':
+          return { type: 'slide', legSwing: 1.0, armSwing: 1.6, bodyAngle: -0.78, crouch: 1, scarf: 2.5 };
+        case 'life':
+          // 生命系：双手前探滑行
+          return { type: 'slide', legSwing: 1.6, armSwing: -1.3, bodyAngle: -0.52, crouch: 1, scarf: 2.0 };
+        case 'ice':
+          // 冰系：单腿伸展贴地滑行
+          return { type: 'slide', legSwing: 1.9, armSwing: 0.3, bodyAngle: -0.7, crouch: 1, scarf: 2.8 };
+        case 'earth':
+          // 土系：肩部压低冲撞
+          return { type: 'slide', legSwing: 0.8, armSwing: 0.7, bodyAngle: -0.92, crouch: 1, scarf: 1.7 };
+        default:
+          // 电系：极低身位闪电滑铲
+          return { type: 'slide', legSwing: 1.35, armSwing: 1.8, bodyAngle: -0.85, crouch: 1, scarf: 3.0 };
+      }
     }
-    const ph = (t * 0.4) % (Math.PI * 2);
-    return { type: 'run', legSwing: Math.sin(ph), armSwing: -Math.sin(ph), bodyAngle: Math.sin(ph) * 0.05, crouch: 0, scarf: 1 + 0.2 * Math.sin(t * 0.3) };
+    // 奔跑：每个忍者有不同的步频、摆幅与身体前倾
+    switch (this.kind) {
+      case 'water': {
+        const ph = (t * 0.4) % (Math.PI * 2);
+        return { type: 'run', legSwing: Math.sin(ph), armSwing: -Math.sin(ph), bodyAngle: Math.sin(ph) * 0.05, crouch: 0, scarf: 1 + 0.2 * Math.sin(t * 0.3) };
+      }
+      case 'fire': {
+        const ph = (t * 0.5) % (Math.PI * 2);
+        return { type: 'run', legSwing: Math.sin(ph) * 1.25, armSwing: -Math.sin(ph) * 1.35, bodyAngle: -0.1 + Math.sin(ph) * 0.04, crouch: 0, scarf: 1.4 };
+      }
+      case 'life': {
+        const ph = (t * 0.36) % (Math.PI * 2);
+        return { type: 'run', legSwing: Math.sin(ph) * 0.7, armSwing: -Math.sin(ph) * 0.8, bodyAngle: Math.sin(ph) * 0.03, crouch: 0, scarf: 1.1 };
+      }
+      case 'ice': {
+        const ph = (t * 0.3) % (Math.PI * 2);
+        return { type: 'run', legSwing: Math.sin(ph) * 0.55, armSwing: -Math.sin(ph) * 0.6, bodyAngle: 0.02, crouch: 0, scarf: 1.3 };
+      }
+      case 'earth': {
+        const ph = (t * 0.34) % (Math.PI * 2);
+        return { type: 'run', legSwing: Math.sin(ph) * 1.15, armSwing: -Math.sin(ph) * 0.65, bodyAngle: 0.09, crouch: 0, scarf: 0.9 };
+      }
+      default: {
+        const ph = (t * 0.62) % (Math.PI * 2);
+        return { type: 'run', legSwing: Math.sin(ph) * 1.1, armSwing: -Math.sin(ph) * 1.2, bodyAngle: -0.14, crouch: 0, scarf: 2.0 };
+      }
+    }
   }
 }
 
@@ -257,7 +314,7 @@ function drawNinja(ctx, cx, fy, kind, pose, animT, scale = 1) {
   if (pose.type === 'slide') {
     ctx.save();
     ctx.globalAlpha = 0.6;
-    const col = kind === 'water' ? '#bfe9ff' : '#ff8a3c';
+    const col = def.theme;
     ctx.fillStyle = col;
     for (let i = 0; i < 3; i++) {
       ctx.beginPath();
@@ -419,10 +476,25 @@ class Pickup {
 }
 
 /* =========================================================
- * 火球 Fireball —— 向 +z 飞行，焚毁前方所有障碍
+ * 光球 Orb —— 火球 / 生命光球，向 +z 飞行，焚毁前方所有障碍
  * ========================================================= */
-class Fireball {
-  constructor(worldX, z, y) { this.worldX = worldX; this.z = z; this.y = y; this.vz = 26; this.dead = false; this.phase = 0; this.maxZ = 760; }
+class Orb {
+  constructor(worldX, z, y, type = 'fire') {
+    this.worldX = worldX;
+    this.z = z;
+    this.y = y;
+    this.type = type;
+    this.vz = type === 'life' ? 24 : 26;
+    this.dead = false;
+    this.phase = 0;
+    this.maxZ = type === 'life' ? 820 : 760;
+    this.theme = type === 'life' ? '#7dffb0' : '#ff8a3c';
+    this.tailA = type === 'life' ? '#7dffb0' : '#ff8a3c';
+    this.tailB = type === 'life' ? '#d9ffe8' : '#ffd166';
+    this.core = type === 'life'
+      ? ['#ffffff', '#7dffb0', '#1e8449']
+      : ['#fff7c2', '#ffb347', '#e74c3c'];
+  }
   update() { this.z += this.vz; this.phase += 0.5; if (this.z > this.maxZ) this.dead = true; }
   draw(ctx) {
     const proj = project(this.worldX, this.z, this.y);
@@ -432,16 +504,132 @@ class Fireball {
     ctx.translate(proj.sx, proj.sy);
     for (let i = 5; i > 0; i--) {
       ctx.globalAlpha = 0.15 * i;
-      ctx.fillStyle = i % 2 ? '#ff8a3c' : '#ffd166';
+      ctx.fillStyle = i % 2 ? this.tailA : this.tailB;
       const bz = Math.max(0, this.z - i * 18);
       const bp = project(this.worldX, bz, this.y);
       ctx.beginPath(); ctx.arc(bp.sx - proj.sx, bp.sy - proj.sy, (14 - i) * s, 0, Math.PI * 2); ctx.fill();
     }
     ctx.globalAlpha = 1;
     const g = ctx.createRadialGradient(0, 0, 2 * s, 0, 0, 16 * s);
-    g.addColorStop(0, '#fff7c2'); g.addColorStop(0.5, '#ffb347'); g.addColorStop(1, '#e74c3c');
+    g.addColorStop(0, this.core[0]); g.addColorStop(0.5, this.core[1]); g.addColorStop(1, this.core[2]);
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(0, 0, 14 * s, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* =========================================================
+ * 地面隆起特效 QuakeFX —— 土系技能
+ * ========================================================= */
+class QuakeFX {
+  constructor(lane) {
+    this.lane = lane;
+    this.life = 44;
+    this.max = 44;
+    this.layer = 'ground';
+    this.rocks = [];
+    for (let i = 0; i < 10; i++) {
+      this.rocks.push({
+        z: 50 + i * 68 + Math.random() * 30,
+        h: 26 + Math.random() * 38,
+        offset: (Math.random() - 0.5) * 76,
+        rot: (Math.random() - 0.5) * 0.5,
+      });
+    }
+  }
+  get dead() { return this.life <= 0; }
+  update() { this.life--; }
+  draw(ctx) {
+    const a = Math.max(0, this.life / this.max);
+    const rise = Math.min(1, (1 - a) * 3);
+    for (const r of this.rocks) {
+      const p = project(laneX(this.lane) + r.offset, r.z, 0);
+      if (p.scale < 0.04) continue;
+      const s = p.scale;
+      const h = r.h * s * rise;
+      ctx.save();
+      ctx.translate(p.sx, p.sy);
+      ctx.rotate(r.rot * 0.3);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = '#8d6e63';
+      ctx.beginPath();
+      ctx.moveTo(-16 * s, 0); ctx.lineTo(-6 * s, -h); ctx.lineTo(6 * s, -h * 0.9); ctx.lineTo(16 * s, 0);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#c49a6c';
+      ctx.beginPath();
+      ctx.moveTo(-6 * s, -h); ctx.lineTo(6 * s, -h * 0.9); ctx.lineTo(2 * s, -h * 0.55);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+/* =========================================================
+ * 枝状闪电特效 LightningFX —— 电系技能
+ * ========================================================= */
+class LightningFX {
+  constructor(lane) {
+    this.life = 26;
+    this.max = 26;
+    this.layer = 'over';
+    this.bolts = [];
+    this.branches = [];
+    const order = [lane, (lane + 1) % 3, (lane + 2) % 3];
+    for (const l of order) {
+      const start = project(laneX(l), 30, 40);
+      const end = project(laneX(l), 900, 60);
+      const segs = 9;
+      const pts = [];
+      for (let i = 0; i <= segs; i++) {
+        const t = i / segs;
+        const edge = i === 0 || i === segs;
+        pts.push({
+          x: start.sx + (end.sx - start.sx) * t + (edge ? 0 : (Math.random() - 0.5) * 44),
+          y: start.sy + (end.sy - start.sy) * t + (edge ? 0 : (Math.random() - 0.5) * 24),
+        });
+      }
+      this.bolts.push(pts);
+      for (let i = 2; i < segs - 1; i += 2) {
+        const p = pts[i];
+        this.branches.push([
+          { x: p.x, y: p.y },
+          { x: p.x + (Math.random() - 0.5) * 90, y: p.y + (Math.random() - 0.6) * 60 },
+          { x: p.x + (Math.random() - 0.5) * 150, y: p.y + (Math.random() - 0.4) * 80 },
+        ]);
+      }
+    }
+  }
+  get dead() { return this.life <= 0; }
+  update() { this.life--; }
+  draw(ctx) {
+    const a = Math.max(0, this.life / this.max);
+    const flicker = 0.7 + 0.3 * Math.sin(this.life * 2);
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, a * 1.6) * flicker;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    const layers = [
+      { w: 10, color: 'rgba(120,190,255,0.28)' },
+      { w: 4, color: '#9ad0ff' },
+      { w: 1.6, color: '#ffffff' },
+    ];
+    for (const layer of layers) {
+      ctx.lineWidth = layer.w;
+      ctx.strokeStyle = layer.color;
+      for (const pts of this.bolts) {
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+        ctx.stroke();
+      }
+      for (const b of this.branches) {
+        ctx.beginPath();
+        ctx.moveTo(b[0].x, b[0].y);
+        ctx.lineTo(b[1].x, b[1].y);
+        ctx.lineTo(b[2].x, b[2].y);
+        ctx.stroke();
+      }
+    }
     ctx.restore();
   }
 }

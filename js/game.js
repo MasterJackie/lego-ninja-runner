@@ -10,6 +10,7 @@ class Game {
 
     this.state = 'menu';
     this.kind = 'water';
+    this.difficulty = 'normal';
     this.best = Number(localStorage.getItem('lnr_best') || 0);
 
     this.bg = new Image();
@@ -28,17 +29,19 @@ class Game {
   }
 
   resetRun() {
-    this.player = new Player(this.kind);
+    this.diff = DIFFICULTIES[this.difficulty] || DIFFICULTIES.normal;
+    this.player = new Player(this.kind, this.diff.skillUses);
     this.obstacles = [];
     this.pickups = [];
     this.particles = [];
-    this.fireballs = [];
-    this.speed = CFG.speedBase;
+    this.projectiles = [];
+    this.effects = [];
+    this.speed = this.diff.startSpeed;
     this.distance = 0;
     this.score = 0;
     this.coins = 0;
     this.lives = 3;
-    this.spawnGap = 360;     // z 间距
+    this.spawnGap = 360 * this.diff.spawnGapMul; // z 间距
     this.sinceSpawn = 400;   // 起步先空一段
     this.scrollZ = 0;
     this.flashAmt = 0;
@@ -110,11 +113,12 @@ class Game {
   spawnDust(worldX, z, y, kind) {
     const s = this.worldToScreen(worldX, z, y);
     const n = 6;
+    const tint = (NINJAS[kind] && NINJAS[kind].theme) || '#ffd9a0';
     for (let i = 0; i < n; i++) {
       this.particles.push(new Particle(
         s.sx + (Math.random() - 0.5) * 20, s.sy,
         (Math.random() - 0.5) * 3, -Math.random() * 2 - 0.5,
-        18 + Math.random() * 10, kind === 'water' ? '#cfe8ff' : '#ffd9a0',
+        18 + Math.random() * 10, tint,
         3 + Math.random() * 2, 'dust'));
     }
   }
@@ -127,18 +131,72 @@ class Game {
         26 + Math.random() * 18, '#bfe9ff', 3 + Math.random() * 3, 'ice'));
     }
   }
-  spawnFireball(worldX, z, y) {
-    this.fireballs.push(new Fireball(worldX, z, y));
+  spawnOrb(worldX, z, y, type) {
+    const orb = new Orb(worldX, z, y, type);
+    this.projectiles.push(orb);
     const s = this.worldToScreen(worldX, z, y);
     for (let i = 0; i < 14; i++) {
       this.particles.push(new Particle(s.sx, s.sy,
         (Math.random() - 0.3) * 5, (Math.random() - 0.5) * 5,
-        22 + Math.random() * 14, i % 2 ? '#ff8a3c' : '#ffd166',
+        22 + Math.random() * 14, i % 2 ? orb.theme : '#ffffff',
         3 + Math.random() * 3, 'spark'));
     }
   }
   flash(color, amt) { this.flashColor = color; this.flashAmt = amt; }
   onLaneChange() { /* 可接音效 */ }
+
+  /* ---------------- 技能 ---------------- */
+  castSkill(player) {
+    const type = player.def.skillType;
+    if (type === 'iceBridge') {
+      player.skillTimer = player.def.skillFrames;
+      this.flash(player.def.theme, 0.35);
+    } else if (type === 'freeze') {
+      player.skillTimer = player.def.skillFrames;
+      this.flash('#e8f7ff', 0.32);
+      this.shake = 3;
+    } else if (type === 'fireball') {
+      this.spawnOrb(player.laneX, CFG.playerZ, 40, 'fire');
+      this.flash(player.def.theme, 0.3);
+    } else if (type === 'lifeOrb') {
+      this.spawnOrb(player.laneX, CFG.playerZ, 40, 'life');
+      this.flash(player.def.theme, 0.3);
+    } else if (type === 'quake') {
+      this.castQuake(player);
+    } else if (type === 'lightning') {
+      this.castLightning(player);
+    }
+  }
+  // 土系：隆起地面，顶飞本赛道前方障碍
+  castQuake(player) {
+    const lane = player.hitLane();
+    const zLimit = 900;
+    for (const o of this.obstacles) {
+      if (o.dead || !o.lanes.includes(lane)) continue;
+      if (o.z < CFG.playerZ - 30 || o.z > zLimit) continue;
+      o.lanes = o.lanes.filter((l) => l !== lane);
+      this.score += 8;
+      this.explodeWorld(lane, o.z, 40, '#c49a6c');
+      if (o.lanes.length === 0) o.dead = true;
+    }
+    this.effects.push(new QuakeFX(lane));
+    this.flash('#e0c9a6', 0.25);
+    this.shake = 8;
+  }
+  // 电系：树枝状闪电清理前方障碍
+  castLightning(player) {
+    const zLimit = 950;
+    for (const o of this.obstacles) {
+      if (o.dead) continue;
+      if (o.z < CFG.playerZ - 20 || o.z > zLimit) continue;
+      o.dead = true;
+      this.score += 6;
+      this.explodeWorld(o.lanes[0], o.z, 50, '#9ad0ff');
+    }
+    this.effects.push(new LightningFX(player.hitLane()));
+    this.flash('#cfe3ff', 0.35);
+    this.shake = 6;
+  }
 
   /* ---------------- 生成波次 ---------------- */
   spawnWave() {
@@ -188,37 +246,42 @@ class Game {
     const input = this.input;
     this.pressed.clear();
 
-    this.speed = Math.min(CFG.speedMax, this.speed + CFG.speedRamp);
-    this.distance += this.speed;
-    this.scrollZ += this.speed;
+    this.speed = Math.min(this.diff.maxSpeed, this.speed + this.diff.speedRamp);
+    const move = this.speed * this.player.speedMult;
+    this.distance += move;
+    this.scrollZ += move;
     this.score = Math.floor(this.distance / 12) + this.coins * 10;
 
     this.player.update(input, this);
     if (input.skillPressed) this.player.useSkill(this);
 
-    // 火球：焚毁前方（z <= 火球 z）的所有障碍
-    for (const fb of this.fireballs) {
-      fb.update();
+    // 光球：焚烧/净化前方（z <= 光球 z）的所有障碍
+    for (const orb of this.projectiles) {
+      orb.update();
       for (const o of this.obstacles) {
-        if (!o.dead && o.z <= fb.z && o.z > CFG.playerZ - 20) {
+        if (!o.dead && o.z <= orb.z && o.z > CFG.playerZ - 20) {
           o.dead = true; this.score += 5;
-          this.explodeWorld(o.lanes[0], o.z, 60, '#ff8a3c');
+          this.explodeWorld(o.lanes[0], o.z, 60, orb.theme);
         }
       }
     }
-    this.fireballs = this.fireballs.filter((f) => !f.dead);
+    this.projectiles = this.projectiles.filter((f) => !f.dead);
+
+    // 技能特效
+    for (const fx of this.effects) fx.update();
+    this.effects = this.effects.filter((fx) => !fx.dead);
 
     // 障碍
-    this.sinceSpawn += this.speed;
+    this.sinceSpawn += move;
     if (this.sinceSpawn >= this.spawnGap) {
       this.spawnWave();
       this.sinceSpawn = 0;
-      this.spawnGap = Math.max(230, 420 - this.speed * 6);
+      this.spawnGap = Math.max(230, 420 - this.speed * 6) * this.diff.spawnGapMul;
     }
-    for (const o of this.obstacles) o.update(this.speed);
+    for (const o of this.obstacles) o.update(move);
 
     // 拾取
-    for (const p of this.pickups) p.update(this.speed);
+    for (const p of this.pickups) p.update(move);
 
     // 碰撞：拾取
     for (const p of this.pickups) {
@@ -240,7 +303,7 @@ class Game {
       o.hit = true;
       if (this.player.isInvincible()) {
         o.dead = true; this.score += 5;
-        this.explodeWorld(o.lanes[0], o.z, 50, this.player.kind === 'water' ? '#bfe9ff' : '#ff8a3c');
+        this.explodeWorld(o.lanes[0], o.z, 50, this.player.def.theme);
       } else {
         this.hitObstacle(o);
       }
@@ -283,21 +346,36 @@ class Game {
   /* ---------------- 渲染 ---------------- */
   render() {
     const ctx = this.ctx;
+    ctx.clearRect(0, 0, CFG.width, CFG.height);
     ctx.save();
     if (this.shake > 0.3) ctx.translate((Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake);
 
     this.drawBackground(ctx);
     this.drawTrack(ctx);
 
+    // 地面技能特效（土系隆起）
+    for (const fx of this.effects) {
+      if (fx.layer === 'ground') fx.draw(ctx);
+    }
+    // 冰系：冰冻跑道
+    if (this.player && this.player.kind === 'ice' && this.player.skillTimer > 0) {
+      this.drawIcePath(ctx);
+    }
+
     // 实体按 z 降序（远→近）绘制
     const items = [];
     for (const o of this.obstacles) items.push({ z: o.z, draw: () => o.draw(ctx) });
     for (const p of this.pickups) items.push({ z: p.z, draw: () => p.draw(ctx) });
-    for (const fb of this.fireballs) items.push({ z: fb.z, draw: () => fb.draw(ctx) });
+    for (const fb of this.projectiles) items.push({ z: fb.z, draw: () => fb.draw(ctx) });
     items.sort((a, b) => b.z - a.z);
     for (const it of items) it.draw();
 
     if (this.state !== 'menu') this.player.draw(ctx);
+
+    // 覆盖层技能特效（电系闪电）
+    for (const fx of this.effects) {
+      if (fx.layer !== 'ground') fx.draw(ctx);
+    }
     for (const pt of this.particles) pt.draw(ctx);
 
     ctx.restore();
@@ -313,8 +391,10 @@ class Game {
     return {
       state: this.state, kind: this.kind, score: this.score, best: this.best,
       coins: this.coins, lives: this.lives, speed: this.speed,
-      skillUsed: this.player ? this.player.skillUsed : false,
-      skillReady: this.player ? !this.player.skillUsed : true,
+      difficulty: this.difficulty,
+      skillLeft: this.player ? this.player.skillLeft : 0,
+      skillMax: this.player ? this.player.skillMax : 0,
+      skillReady: this.player ? this.player.skillLeft > 0 : true,
       skillActive: this.player ? this.player.skillTimer > 0 : false,
       def: NINJAS[this.kind],
     };
@@ -333,6 +413,12 @@ class Game {
       let x = -off;
       while (x < CFG.width) { ctx.drawImage(this.bg, x, 0, bw, drawH); x += bw; }
     }
+    // 路面两侧的地面底色，避免留白/残影累积
+    const ground = ctx.createLinearGradient(0, CFG.horizonY + 40, 0, CFG.height);
+    ground.addColorStop(0, '#3f6b3f');
+    ground.addColorStop(1, '#24402a');
+    ctx.fillStyle = ground;
+    ctx.fillRect(0, CFG.horizonY + 40, CFG.width, CFG.height - CFG.horizonY - 40);
     // 远景积木山丘贴地平线
     ctx.save();
     const moff = this.scrollZ * 0.15;
@@ -425,6 +511,54 @@ class Game {
       stud(ctx, 0, -h + 8, 5);
       ctx.restore();
     }
+  }
+
+  /* ---------------- 冰系冰冻跑道 ---------------- */
+  drawIcePath(ctx) {
+    const t = this.player.skillTimer;
+    const nearL = project(-CFG.laneW * 1.5, 0, 0);
+    const nearR = project(CFG.laneW * 1.5, 0, 0);
+    const farL = project(-CFG.laneW * 1.5, CFG.maxZ * 0.6, 0);
+    const farR = project(CFG.laneW * 1.5, CFG.maxZ * 0.6, 0);
+    ctx.save();
+    ctx.globalAlpha = 0.42 + 0.16 * Math.sin(t * 0.25);
+    const g = ctx.createLinearGradient(0, farL.sy, 0, nearL.sy);
+    g.addColorStop(0, 'rgba(220,245,255,0.05)');
+    g.addColorStop(0.5, 'rgba(180,230,255,0.35)');
+    g.addColorStop(1, 'rgba(255,255,255,0.55)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(nearL.sx, nearL.sy); ctx.lineTo(nearR.sx, nearR.sy);
+    ctx.lineTo(farR.sx, farR.sy); ctx.lineTo(farL.sx, farL.sy);
+    ctx.closePath(); ctx.fill();
+
+    // 冰晶碎片
+    ctx.globalAlpha = 0.65;
+    const shardZ = 120;
+    const off = this.scrollZ % shardZ;
+    for (let z = -off; z < CFG.maxZ * 0.6; z += shardZ) {
+      for (let i = 0; i < 3; i++) {
+        const wx = (i - 1) * CFG.laneW + Math.sin(z * 0.7 + i) * 30;
+        const p = project(wx, Math.max(20, z + i * 30), 0);
+        if (p.scale < 0.05) continue;
+        const s = p.scale;
+        ctx.fillStyle = 'rgba(235,250,255,0.8)';
+        ctx.beginPath();
+        ctx.moveTo(p.sx, p.sy - 8 * s); ctx.lineTo(p.sx + 5 * s, p.sy); ctx.lineTo(p.sx - 5 * s, p.sy);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    // 速度线
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 6; i++) {
+      const yy = CFG.horizonY + 40 + ((i * 97 + this.scrollZ * 1.6) % 300);
+      const side = i % 2 ? -1 : 1;
+      const xx = 480 + side * (240 + (i % 3) * 55);
+      ctx.beginPath(); ctx.moveTo(xx, yy); ctx.lineTo(xx + side * 34, yy + 10); ctx.stroke();
+    }
+    ctx.restore();
   }
 
   loop(now) {
