@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>乐高忍者跑酷 · Lego Ninja Runner</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <div class="stage">
+      <canvas id="game" width="960" height="540"></canvas>
+
+      <!-- 顶部 HUD -->
+      <div id="hud" class="hud hidden">
+        <div class="hud-left">
+          <div class="pill"><span class="label">分数</span><span id="score" class="val">0</span></div>
+          <div class="pill"><span class="label">最高</span><span id="best" class="val">0</span></div>
+          <div class="pill coin"><span class="dot"></span><span id="coins" class="val">0</span></div>
+        </div>
+        <div class="hud-right">
+          <div id="lives" class="lives"></div>
+          <div id="skill" class="skill ready">
+            <span id="skillName">技能</span>
+            <span id="skillKey">SHIFT</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 菜单 -->
+      <div id="menu" class="overlay">
+        <h1 class="title">乐高忍者<span>跑酷</span></h1>
+        <p class="subtitle">选择你的忍者，出发！</p>
+        <div class="cards">
+          <div class="card water" data-kind="water">
+            <canvas class="preview" width="120" height="120"></canvas>
+            <div class="cname">水系忍者</div>
+            <div class="cskill">❄ 冰桥</div>
+            <div class="cdesc">短时间无敌，穿越一切障碍</div>
+          </div>
+          <div class="card fire" data-kind="fire">
+            <canvas class="preview" width="120" height="120"></canvas>
+            <div class="cname">火系忍者</div>
+            <div class="cskill">🔥 火球</div>
+            <div class="cdesc">发射火球，焚毁前方所有障碍</div>
+          </div>
+        </div>
+        <button id="startBtn" class="btn">开始游戏 (Enter)</button>
+        <div class="help">
+          <b>操作：</b> ← → / A D 变道 · ↑ / 空格 跳跃 · ↓ / S 滑铲 · Shift / J 技能（每局限 1 次）<br />
+          <b>手机：</b> 左右滑动变道 · 上滑跳跃 · 下滑滑铲 · 双击屏幕释放技能
+        </div>
+      </div>
+
+      <!-- 结算 -->
+      <div id="gameover" class="overlay hidden">
+        <h2 class="go-title">闯关结束</h2>
+        <div class="go-stats">
+          <div><span class="label">本局得分</span><span id="finalScore" class="big">0</span></div>
+          <div><span class="label">金币</span><span id="finalCoins" class="big">0</span></div>
+          <div><span class="label">历史最高</span><span id="finalBest" class="big">0</span></div>
+        </div>
+        <div class="go-btns">
+          <button id="retryBtn" class="btn">再来一局 (Enter)</button>
+          <button id="menuBtn" class="btn ghost">返回选人</button>
+        </div>
+      </div>
+    </div>
+    <div class="foot">乐高风跑酷 Demo · 纯 HTML5 Canvas 实现</div>
+  </div>
+
+  <script src="js/config.js?v=2"></script>
+  <script src="js/entities.js?v=2"></script>
+  <script src="js/game.js?v=2"></script>
+  <script>
+    // UI 绑定（依赖全局 Game 实例）
+    function setupUI(game) {
+      const $ = (id) => document.getElementById(id);
+      const hud = $('hud'), menu = $('menu'), go = $('gameover');
+
+      // 预览动画
+      const previews = document.querySelectorAll('.preview');
+      function tickPreviews() {
+        previews.forEach((c) => {
+          const kind = c.closest('.card').dataset.kind;
+          const ctx = c.getContext('2d');
+          drawNinjaPreview(ctx, kind, c.width, c.height);
+        });
+        requestAnimationFrame(tickPreviews);
+      }
+      tickPreviews();
+
+      // 选人
+      document.querySelectorAll('.card').forEach((card) => {
+        card.addEventListener('click', () => {
+          document.querySelectorAll('.card').forEach((c) => c.classList.remove('sel'));
+          card.classList.add('sel');
+          game.kind = card.dataset.kind;
+          game.refreshMenu && game.refreshMenu();
+        });
+      });
+      document.querySelector('.card.water').classList.add('sel');
+
+      $('startBtn').onclick = () => game.start();
+      $('retryBtn').onclick = () => game.start();
+      $('menuBtn').onclick = () => { game.state = 'menu'; };
+
+      // 状态同步
+      game.onState = (s) => {
+        $('score').textContent = s.score;
+        $('best').textContent = s.best;
+        $('coins').textContent = s.coins;
+
+        // 生命
+        const lives = $('lives');
+        lives.innerHTML = '';
+        for (let i = 0; i < 3; i++) {
+          const h = document.createElement('span');
+          h.className = 'heart' + (i < s.lives ? '' : ' empty');
+          h.textContent = '❤';
+          lives.appendChild(h);
+        }
+
+        // 技能
+        const sk = $('skill');
+        $('skillName').textContent = s.def.skillName;
+        sk.classList.toggle('ready', s.skillReady);
+        sk.classList.toggle('used', !s.skillReady);
+        sk.classList.toggle('active', s.skillActive);
+
+        // 显隐
+        hud.classList.toggle('hidden', s.state !== 'playing');
+        menu.classList.toggle('hidden', s.state !== 'menu');
+        go.classList.toggle('hidden', s.state !== 'gameover');
+
+        if (s.state === 'gameover') {
+          $('finalScore').textContent = s.score;
+          $('finalCoins').textContent = s.coins;
+          $('finalBest').textContent = s.best;
+        }
+      };
+
+      game.refreshMenu = () => {
+        document.querySelectorAll('.card').forEach((c) =>
+          c.classList.toggle('sel', c.dataset.kind === game.kind));
+      };
+    }
+  </script>
+</body>
+</html>
