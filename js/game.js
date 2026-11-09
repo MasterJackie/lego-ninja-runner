@@ -290,7 +290,7 @@ class Game {
         p.dead = true;
         if (p.type === 'coin') this.coins++;
         else if (p.type === 'gem') { this.coins += 5; this.flash('#1abc9c', 0.2); }
-        else if (p.type === 'heart') { this.lives = Math.min(3, this.lives + 1); this.flash('#e74c3c', 0.25); }
+        else if (p.type === 'heart') { this.lives = Math.min(10, this.lives + 1); this.flash('#e74c3c', 0.25); }
         const s = project(laneX(p.lane), p.z, p.y);
         this.burst(s.sx, s.sy, p.type === 'coin' ? '#f1c40f' : p.type === 'gem' ? '#1abc9c' : '#e74c3c');
       }

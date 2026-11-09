@@ -159,7 +159,9 @@
         // 生命
         const lives = $('lives');
         lives.innerHTML = '';
-        for (let i = 0; i < 3; i++) {
+        const totalHearts = Math.max(3, s.lives);
+        lives.classList.toggle('many', totalHearts > 6);
+        for (let i = 0; i < totalHearts; i++) {
           const h = document.createElement('span');
           h.className = 'heart' + (i < s.lives ? '' : ' empty');
           h.textContent = '❤';

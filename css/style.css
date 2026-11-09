@@ -50,6 +50,8 @@ body {
 .lives { display: flex; gap: 4px; }
 .heart { font-size: 22px; color: #ff4d6d; filter: drop-shadow(0 2px 2px rgba(0,0,0,.4)); }
 .heart.empty { color: rgba(255,255,255,0.2); }
+.lives.many { gap: 2px; }
+.lives.many .heart { font-size: 16px; }
 
 .skill {
   background: rgba(20, 30, 48, 0.72);
