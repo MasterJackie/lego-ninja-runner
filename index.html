@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>乐高忍者跑酷 · Lego Ninja Runner</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css?v=3" />
 </head>
 <body>
   <div class="wrap">
@@ -24,6 +24,18 @@
             <span id="skillName">技能</span>
             <span id="skillCount" class="count">×1</span>
             <span id="skillKey">SHIFT</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 暂停 -->
+      <div id="pause" class="overlay hidden">
+        <div class="pause-card">
+          <h2 class="pause-title">游戏暂停</h2>
+          <p class="pause-tip">游戏已冻结，按 ESC 继续游戏</p>
+          <div class="go-btns">
+            <button id="resumeBtn" class="btn">继续游戏 (ESC)</button>
+            <button id="quitBtn" class="btn ghost">退出到选人</button>
           </div>
         </div>
       </div>
@@ -101,14 +113,14 @@
     <div class="foot">乐高风跑酷 Demo · 纯 HTML5 Canvas 实现</div>
   </div>
 
-  <script src="js/config.js?v=2"></script>
-  <script src="js/entities.js?v=2"></script>
-  <script src="js/game.js?v=2"></script>
+  <script src="js/config.js?v=3"></script>
+  <script src="js/entities.js?v=3"></script>
+  <script src="js/game.js?v=3"></script>
   <script>
     // UI 绑定（依赖全局 Game 实例）
     function setupUI(game) {
       const $ = (id) => document.getElementById(id);
-      const hud = $('hud'), menu = $('menu'), go = $('gameover');
+      const hud = $('hud'), menu = $('menu'), go = $('gameover'), pause = $('pause');
 
       // 预览动画
       const previews = document.querySelectorAll('.preview');
@@ -149,6 +161,8 @@
       $('startBtn').onclick = () => game.start();
       $('retryBtn').onclick = () => game.start();
       $('menuBtn').onclick = () => { game.state = 'menu'; };
+      $('resumeBtn').onclick = () => game.resume();
+      $('quitBtn').onclick = () => game.quitToMenu();
 
       // 状态同步
       game.onState = (s) => {
@@ -180,6 +194,7 @@
         hud.classList.toggle('hidden', s.state !== 'playing');
         menu.classList.toggle('hidden', s.state !== 'menu');
         go.classList.toggle('hidden', s.state !== 'gameover');
+        pause.classList.toggle('hidden', s.state !== 'paused');
 
         if (s.state === 'gameover') {
           $('finalScore').textContent = s.score;

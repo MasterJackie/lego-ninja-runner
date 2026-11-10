@@ -50,6 +50,21 @@ class Game {
   }
 
   start() { this.resetRun(); this.state = 'playing'; }
+  pause() {
+    if (this.state !== 'playing') return;
+    this.state = 'paused';
+    this.pressed.clear();
+  }
+  resume() {
+    if (this.state !== 'paused') return;
+    this.state = 'playing';
+    this.pressed.clear();
+  }
+  quitToMenu() {
+    this.state = 'menu';
+    this.pressed.clear();
+    this.keys.clear();
+  }
 
   /* ---------------- 输入 ---------------- */
   bindInput() {
@@ -63,14 +78,21 @@ class Game {
       KeyJ: 'j', KeyK: 'k',
       ShiftLeft: 'shift', ShiftRight: 'shift',
       Enter: 'enter',
+      Escape: 'escape',
     };
     const normKey = (e) => CODE_MAP[e.code] || e.key.toLowerCase();
 
     window.addEventListener('keydown', (e) => {
       const k = normKey(e);
       if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault();
-      if (!this.keys.has(k)) this.pressed.add(k);
+      const first = !this.keys.has(k);
+      if (first) this.pressed.add(k);
       this.keys.add(k);
+      if (first && k === 'escape') {
+        if (this.state === 'playing') this.pause();
+        else if (this.state === 'paused') this.resume();
+        return;
+      }
       if (this.state === 'menu' && (k === 'enter' || k === ' ')) this.start();
       if (this.state === 'gameover' && (k === 'enter' || k === ' ')) this.start();
     });

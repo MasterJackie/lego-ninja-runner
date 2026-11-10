@@ -165,6 +165,24 @@ body {
 .btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #c79a00; }
 .btn.ghost { background: transparent; color: #fff; border: 2px solid rgba(255,255,255,0.5); box-shadow: none; }
 
+/* ---------- 暂停 ---------- */
+.pause-card {
+  background: rgba(12, 24, 40, 0.92);
+  border: 2px solid rgba(255, 209, 102, 0.55);
+  border-radius: 18px;
+  padding: 26px 34px 24px;
+  text-align: center;
+  box-shadow: 0 18px 40px rgba(0,0,0,.5);
+}
+.pause-title {
+  font-size: 34px;
+  font-weight: 900;
+  color: #ffd166;
+  text-shadow: 2px 2px 0 #7a5a00;
+  margin-bottom: 8px;
+}
+.pause-tip { font-size: 13px; opacity: 0.8; margin-bottom: 20px; }
+
 .help { margin-top: 6px; font-size: 12px; opacity: 0.85; max-width: 660px; line-height: 1.55; }
 
 .go-title { font-size: 44px; font-weight: 900; color: #ff6b6b; text-shadow: 3px 3px 0 #7a1f1f; margin-bottom: 16px; }
