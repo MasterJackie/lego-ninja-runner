@@ -41,24 +41,24 @@ const CFG = {
 };
 
 // 三档难度
-// spawnGapMul：障碍生成间距倍率，越大障碍越少
+// gapFrames：两次障碍生成之间至少间隔的帧数（按当前速度换算成 z 距离）
 const DIFFICULTIES = {
   easy: {
     key: 'easy', name: '简单',
     startSpeed: 10, maxSpeed: 21, speedRamp: 0.0014,
-    spawnGapMul: 1.45, skillUses: 5,
+    gapFrames: 54, skillUses: 5,
     desc: '慢速 · 障碍少 · 5 次技能',
   },
   normal: {
     key: 'normal', name: '普通',
     startSpeed: 12, maxSpeed: 26, speedRamp: 0.0018,
-    spawnGapMul: 1.1, skillUses: 3,
+    gapFrames: 46, skillUses: 3,
     desc: '标准速度 · 3 次技能',
   },
   hard: {
     key: 'hard', name: '困难',
     startSpeed: 14, maxSpeed: 30, speedRamp: 0.002,
-    spawnGapMul: 0.9, skillUses: 1,
+    gapFrames: 40, skillUses: 1,
     desc: '极速 · 障碍密集 · 1 次技能',
   },
 };

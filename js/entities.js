@@ -54,6 +54,8 @@ class Player {
     this.onGround = true;
     this.state = 'run';
     this.slideTimer = 0;
+    this.jumpBuffer = 0;
+    this.slideBuffer = 0;
     this.invuln = 0;
     this.skillLeft = this.skillMax;
     this.skillTimer = 0;
@@ -73,23 +75,14 @@ class Player {
     const targetX = laneX(this.lane);
     this.laneX += (targetX - this.laneX) * 0.28;
 
-    // 跳跃
-    if (input.jumpPressed && this.onGround) {
-      this.vy = CFG.jumpVel;
-      this.onGround = false;
-      this.state = 'jump';
-      game.spawnDust(this.laneX, CFG.playerZ, 0, this.kind);
-    }
-    // 滑铲（地面才能滑；空中按↓可快速下落）
-    if (input.slidePressed) {
-      if (this.onGround) {
-        this.state = 'slide';
-        this.slideTimer = CFG.slideFrames;
-        game.spawnDust(this.laneX, CFG.playerZ, 0, this.kind);
-      } else {
-        this.vy -= 6; // 空中速降（y 向上为正，vy 减小=下落更快）
-      }
-    }
+    // 跳跃 / 滑铲输入缓冲：落地前按下，也会在着地瞬间自动接上
+    if (input.jumpPressed) this.jumpBuffer = 8;
+    if (input.slidePressed) this.slideBuffer = 8;
+
+    if (this.jumpBuffer > 0 && this.onGround) this.startJump(game);
+    else if (input.slidePressed && this.onGround) this.startSlide(game);
+    else if (input.slidePressed && !this.onGround) this.vy -= 6; // 空中速降（y 向上为正，vy 减小=下落更快）
+
     if (this.state === 'slide') {
       this.slideTimer--;
       if (this.slideTimer <= 0) this.state = 'run';
@@ -102,8 +95,12 @@ class Player {
       if (this.y <= 0) {
         this.y = 0; this.vy = 0; this.onGround = true; this.state = 'run';
         game.spawnDust(this.laneX, CFG.playerZ, 0, this.kind);
+        if (this.jumpBuffer > 0) this.startJump(game);
+        else if (this.slideBuffer > 0) this.startSlide(game);
       }
     }
+    if (this.jumpBuffer > 0) this.jumpBuffer--;
+    if (this.slideBuffer > 0) this.slideBuffer--;
 
     if (this.invuln > 0) this.invuln--;
     if (this.skillTimer > 0) {
@@ -112,6 +109,21 @@ class Player {
         game.spawnIce(this.laneX, CFG.playerZ, this.y);
       }
     }
+  }
+
+  startJump(game) {
+    this.vy = CFG.jumpVel;
+    this.onGround = false;
+    this.state = 'jump';
+    this.jumpBuffer = 0;
+    this.slideBuffer = 0;
+    game.spawnDust(this.laneX, CFG.playerZ, 0, this.kind);
+  }
+  startSlide(game) {
+    this.state = 'slide';
+    this.slideTimer = CFG.slideFrames;
+    this.slideBuffer = 0;
+    game.spawnDust(this.laneX, CFG.playerZ, 0, this.kind);
   }
 
   isInvincible() { return this.invuln > 0 || this.skillTimer > 0; }
@@ -178,76 +190,84 @@ class Player {
     const apex = (CFG.jumpVel * CFG.jumpVel) / (2 * CFG.gravity);
     return Math.max(0, Math.min(1, this.y / apex));
   }
+  // 起跳到落地的线性进度（空翻用，避免到顶点后倒转）
+  airProgress() {
+    if (this.onGround) return 0;
+    return Math.max(0, Math.min(1, (CFG.jumpVel - this.vy) / (2 * CFG.jumpVel)));
+  }
   computePose() {
     const t = this.animT;
     if (this.state === 'jump') {
       const jp = this.jumpProgress();
+      const ap = this.airProgress();
       switch (this.kind) {
         case 'water':
-          // 水系：腾空翻转一圈
-          return { type: 'jump', legSwing: 0.4, armSwing: -0.9, bodyAngle: Math.sin(jp * Math.PI) * Math.PI, crouch: 0, scarf: 1.5 };
+          // 水系：抱膝前空翻
+          return { type: 'jump', spin: ap * Math.PI * 2, legLiftL: 1.1, legLiftR: 1.1, legAngleL: 0.5, legAngleR: 0.5, armAngleL: -0.5, armAngleR: -0.5, armLiftL: 0.55, armLiftR: 0.55, scarf: 1.5 };
         case 'fire':
-          // 火系：弹射后仰 + 双臂上举
-          return { type: 'jump', legSwing: 0.7, armSwing: -1.3, bodyAngle: -0.35, crouch: 0, scarf: 1.8 };
+          // 火系：火箭式跃起，双拳冲天、后腿拖曳
+          return { type: 'jump', bodyAngle: -0.28, legLiftL: 0.15, legLiftR: 0.95, legAngleL: -0.15, legAngleR: 0.6, armAngleL: 2.65, armAngleR: 2.9, armLiftL: 0, armLiftR: 0.1, scarf: 1.9 };
         case 'life':
-          // 生命系：轻盈悬浮，双臂张开
-          return { type: 'jump', legSwing: -0.5, armSwing: -1.7, bodyAngle: 0.14, crouch: 0, scarf: 2.2 };
+          // 生命系：悬浮展臂
+          return { type: 'jump', bodyAngle: 0.04, bob: Math.sin(jp * Math.PI) * 4, legLiftL: 0.5, legLiftR: 0.85, legAngleL: 0.35, legAngleR: 0.55, armAngleL: 1.55, armAngleR: 1.55, armLiftL: 0.2, armLiftR: 0.2, scarf: 2.2 };
         case 'ice':
-          // 冰系：空中舒展旋转
-          return { type: 'jump', legSwing: 0.2, armSwing: -1.0, bodyAngle: jp * Math.PI * 2, crouch: 0, scarf: 2.6 };
+          // 冰系：单腿伸展的空中转体
+          return { type: 'jump', spin: ap * Math.PI * 2, legLiftL: 0.05, legLiftR: 1.1, legAngleL: 0.1, legAngleR: 0.65, legSpreadL: -1, armAngleL: 1.5, armAngleR: 1.1, armLiftL: 0.1, armLiftR: 0.4, scarf: 2.6 };
         case 'earth':
           // 土系：抱膝重跳
-          return { type: 'jump', legSwing: 1.5, armSwing: 1.2, bodyAngle: 0.55, crouch: 0, scarf: 1.3 };
+          return { type: 'jump', bodyAngle: 0.32, legLiftL: 1.35, legLiftR: 1.35, legAngleL: 0.7, legAngleR: 0.7, armAngleL: -0.7, armAngleR: -0.7, armLiftL: 0.45, armLiftR: 0.45, scarf: 1.2 };
         default:
-          // 电系：高速前空翻
-          return { type: 'jump', legSwing: 0.8, armSwing: -1.4, bodyAngle: jp * Math.PI * 2, crouch: 0, scarf: 2.8 };
+          // 电系：高速双周空翻，手臂后曳
+          return { type: 'jump', spin: ap * Math.PI * 4, legLiftL: 0.3, legLiftR: 0.95, legAngleL: -0.2, legAngleR: 0.6, armAngleL: 2.0, armAngleR: 2.3, armLiftL: 0.1, armLiftR: 0, scarf: 3.0 };
       }
     }
     if (this.state === 'slide') {
       switch (this.kind) {
         case 'water':
-          return { type: 'slide', legSwing: 1.3, armSwing: 1.4, bodyAngle: -0.62, crouch: 1, scarf: 2.3 };
+          // 水系：单膝贴地、后手撑地
+          return { type: 'slide', bodyAngle: -0.62, lift: 7, legLiftL: 0.1, legLiftR: 0.95, legAngleL: -0.1, legAngleR: 0.5, armAngleL: 0.45, armAngleR: 1.6, armLiftL: 0.2, armLiftR: 0, crouch: 1, scarf: 2.3 };
         case 'fire':
-          return { type: 'slide', legSwing: 1.0, armSwing: 1.6, bodyAngle: -0.78, crouch: 1, scarf: 2.5 };
+          // 火系：棒球式滑铲，前腿伸直
+          return { type: 'slide', bodyAngle: -0.9, lift: 12, legLiftL: 0, legLiftR: 1.25, legAngleL: 0.1, legAngleR: 0.8, armAngleL: 1.8, armAngleR: 0.6, armLiftL: 0, armLiftR: 0.3, crouch: 1, scarf: 2.5 };
         case 'life':
-          // 生命系：双手前探滑行
-          return { type: 'slide', legSwing: 1.6, armSwing: -1.3, bodyAngle: -0.52, crouch: 1, scarf: 2.0 };
+          // 生命系：前扑滑行，双手前探
+          return { type: 'slide', bodyAngle: -0.5, lift: 2, legLiftL: 0.7, legLiftR: 0.9, legAngleL: 0.3, legAngleR: 0.45, armAngleL: 1.1, armAngleR: 1.1, armLiftL: 0.25, armLiftR: 0.25, crouch: 1, scarf: 2.0 };
         case 'ice':
-          // 冰系：单腿伸展贴地滑行
-          return { type: 'slide', legSwing: 1.9, armSwing: 0.3, bodyAngle: -0.7, crouch: 1, scarf: 2.8 };
+          // 冰系：单腿侧展贴地滑行
+          return { type: 'slide', bodyAngle: -0.72, lift: 9, legLiftL: 0.05, legLiftR: 0.9, legAngleL: 0.9, legAngleR: 0.2, legSpreadL: -2.5, armAngleL: 1.5, armAngleR: 1.3, armLiftL: 0.1, armLiftR: 0.1, crouch: 1, scarf: 2.8 };
         case 'earth':
-          // 土系：肩部压低冲撞
-          return { type: 'slide', legSwing: 0.8, armSwing: 0.7, bodyAngle: -0.92, crouch: 1, scarf: 1.7 };
+          // 土系：宽步肩撞，双臂护胸
+          return { type: 'slide', bodyAngle: -0.88, lift: 14, legLiftL: 0.45, legLiftR: 0.45, legAngleL: 0.45, legAngleR: 0.45, legSpreadL: 4.5, legSpreadR: 4.5, armAngleL: -0.4, armAngleR: -0.4, armLiftL: 0.55, armLiftR: 0.55, crouch: 1, scarf: 1.6 };
         default:
-          // 电系：极低身位闪电滑铲
-          return { type: 'slide', legSwing: 1.35, armSwing: 1.8, bodyAngle: -0.85, crouch: 1, scarf: 3.0 };
+          // 电系：极低身位，单手触地
+          return { type: 'slide', bodyAngle: -1.02, lift: 26, legLiftL: 1.15, legLiftR: 0.9, legAngleL: 0.45, legAngleR: 0.35, armAngleL: 0.1, armAngleR: 1.9, armLiftL: 0, armLiftR: 0.1, crouch: 1, scarf: 3.0 };
       }
     }
-    // 奔跑：每个忍者有不同的步频、摆幅与身体前倾
+    // 奔跑：每个忍者有自己的步频、摆幅、前倾与弹跳
     switch (this.kind) {
       case 'water': {
-        const ph = (t * 0.4) % (Math.PI * 2);
-        return { type: 'run', legSwing: Math.sin(ph), armSwing: -Math.sin(ph), bodyAngle: Math.sin(ph) * 0.05, crouch: 0, scarf: 1 + 0.2 * Math.sin(t * 0.3) };
+        const ph = (t * 0.4) % (Math.PI * 2), k = Math.sin(ph);
+        return { type: 'run', legLiftL: 0.4 + 0.32 * k, legLiftR: 0.4 - 0.32 * k, armLiftL: 0.45 + 0.35 * k, armLiftR: 0.45 - 0.35 * k, armAngleL: 0.22, armAngleR: 0.22, bodyAngle: k * 0.04, bob: Math.abs(k) * 0.7, crouch: 0, scarf: 1 + 0.2 * k };
       }
       case 'fire': {
-        const ph = (t * 0.5) % (Math.PI * 2);
-        return { type: 'run', legSwing: Math.sin(ph) * 1.25, armSwing: -Math.sin(ph) * 1.35, bodyAngle: -0.1 + Math.sin(ph) * 0.04, crouch: 0, scarf: 1.4 };
+        const ph = (t * 0.5) % (Math.PI * 2), k = Math.sin(ph);
+        return { type: 'run', legLiftL: 0.55 + 0.45 * k, legLiftR: 0.55 - 0.45 * k, armLiftL: 0.55 + 0.4 * k, armLiftR: 0.55 - 0.4 * k, armAngleL: 0.35, armAngleR: 0.35, bodyAngle: -0.12 + k * 0.03, bob: Math.abs(k) * 0.4, crouch: 0, scarf: 1.5 };
       }
       case 'life': {
-        const ph = (t * 0.36) % (Math.PI * 2);
-        return { type: 'run', legSwing: Math.sin(ph) * 0.7, armSwing: -Math.sin(ph) * 0.8, bodyAngle: Math.sin(ph) * 0.03, crouch: 0, scarf: 1.1 };
+        const ph = (t * 0.36) % (Math.PI * 2), k = Math.sin(ph);
+        return { type: 'run', legLiftL: 0.28 + 0.2 * k, legLiftR: 0.28 - 0.2 * k, armLiftL: 0.3 + 0.15 * k, armLiftR: 0.3 - 0.15 * k, armAngleL: 0.75, armAngleR: 0.75, bodyAngle: k * 0.02, bob: 1.4 * Math.abs(k), crouch: 0, scarf: 1.2 };
       }
       case 'ice': {
-        const ph = (t * 0.3) % (Math.PI * 2);
-        return { type: 'run', legSwing: Math.sin(ph) * 0.55, armSwing: -Math.sin(ph) * 0.6, bodyAngle: 0.02, crouch: 0, scarf: 1.3 };
+        const ph = (t * 0.3) % (Math.PI * 2), k = Math.sin(ph);
+        return { type: 'run', legLiftL: 0.15 + 0.12 * k, legLiftR: 0.15 - 0.12 * k, armLiftL: 0.15 + 0.1 * k, armLiftR: 0.15 - 0.1 * k, armAngleL: 0.15, armAngleR: 0.15, bodyAngle: 0.02, bob: 0.2 * Math.abs(k), crouch: 0, scarf: 1.3 };
       }
       case 'earth': {
-        const ph = (t * 0.34) % (Math.PI * 2);
-        return { type: 'run', legSwing: Math.sin(ph) * 1.15, armSwing: -Math.sin(ph) * 0.65, bodyAngle: 0.09, crouch: 0, scarf: 0.9 };
+        const ph = (t * 0.34) % (Math.PI * 2), k = Math.sin(ph);
+        return { type: 'run', legLiftL: 0.5 + 0.4 * k, legLiftR: 0.5 - 0.4 * k, armLiftL: 0.25 + 0.2 * k, armLiftR: 0.25 - 0.2 * k, armAngleL: 0.3, armAngleR: 0.3, bodyAngle: 0.1, bob: 2.2 * Math.abs(k), crouch: 0, scarf: 0.9 };
       }
       default: {
-        const ph = (t * 0.62) % (Math.PI * 2);
-        return { type: 'run', legSwing: Math.sin(ph) * 1.1, armSwing: -Math.sin(ph) * 1.2, bodyAngle: -0.14, crouch: 0, scarf: 2.0 };
+        const ph = (t * 0.62) % (Math.PI * 2), k = Math.sin(ph);
+        return { type: 'run', legLiftL: 0.65 + 0.55 * k, legLiftR: 0.65 - 0.55 * k, armLiftL: 0.75 + 0.45 * k, armLiftR: 0.75 - 0.45 * k, armAngleL: 0.5, armAngleR: 0.5, bodyAngle: -0.18 + k * 0.03, bob: Math.abs(k) * 0.3, crouch: 0, scarf: 2.2 };
       }
     }
   }
@@ -259,25 +279,42 @@ class Player {
 function drawNinja(ctx, cx, fy, kind, pose, animT, scale = 1) {
   const def = NINJAS[kind];
   const s = scale;
-  const W = 44 * s, H = 64 * s;
 
   ctx.save();
-  ctx.translate(cx, fy);
-  if (pose.crouch) { ctx.translate(0, 26 * s); ctx.rotate(pose.bodyAngle); }
-  else { ctx.rotate(pose.bodyAngle || 0); }
+  ctx.translate(cx, fy + (pose.bob || 0) * s);
+
+  // 空翻围绕身体中心；奔跑前倾 / 滑铲压低围绕脚底
+  if (pose.spin) {
+    ctx.translate(0, -34 * s);
+    ctx.rotate(pose.spin);
+    ctx.translate(0, 34 * s);
+  } else if (pose.crouch) {
+    ctx.translate(0, -(pose.lift || 0) * s);
+    ctx.rotate(pose.bodyAngle || 0);
+  } else if (pose.bodyAngle) {
+    ctx.rotate(pose.bodyAngle);
+  }
 
   drawScarf(ctx, def, pose, animT, s);
 
-  const legW = 11 * s, legH = 18 * s, legY = -legH;
-  const swing = pose.legSwing * 6 * s;
-  ctx.fillStyle = def.dark;
-  roundRect(ctx, -W / 2 + 3 * s, legY + swing * 0.3, legW, legH - Math.abs(swing) * 0.2, 3 * s); ctx.fill();
-  roundRect(ctx, W / 2 - 3 * s - legW, legY - swing * 0.3, legW, legH - Math.abs(swing) * 0.2, 3 * s); ctx.fill();
-  ctx.fillStyle = '#222';
-  roundRect(ctx, -W / 2 + 2 * s, -3 * s, legW + 2 * s, 4 * s, 2 * s); ctx.fill();
-  roundRect(ctx, W / 2 - 3 * s - legW, -3 * s, legW + 2 * s, 4 * s, 2 * s); ctx.fill();
+  const legW = 11 * s, legH = 18 * s, hipY = -18 * s;
+  const liftL = Math.max(0, Math.min(1.2, pose.legLiftL ?? Math.max(0, pose.legSwing || 0) * 0.7));
+  const liftR = Math.max(0, Math.min(1.2, pose.legLiftR ?? Math.max(0, -(pose.legSwing || 0)) * 0.7));
+  const drawLeg = (side, lift, angle, spread) => {
+    const len = legH * (1 - lift * 0.4);
+    ctx.save();
+    ctx.translate(side * 8 * s + side * (spread || 0) * s, hipY);
+    ctx.rotate(-side * (angle || 0));
+    ctx.fillStyle = def.dark;
+    roundRect(ctx, -legW / 2, 0, legW, len, 3 * s); ctx.fill();
+    ctx.fillStyle = '#222';
+    roundRect(ctx, -legW / 2 - 1 * s, len - 3 * s, legW + 2 * s, 4 * s, 2 * s); ctx.fill();
+    ctx.restore();
+  };
+  drawLeg(-1, liftL, pose.legAngleL, pose.legSpreadL);
+  drawLeg(1, liftR, pose.legAngleR, pose.legSpreadR);
 
-  const torsoW = 30 * s, torsoH = 26 * s, torsoY = legY - torsoH + 2 * s;
+  const torsoW = 30 * s, torsoH = 26 * s, torsoY = -44 * s;
   ctx.fillStyle = def.color;
   roundRect(ctx, -torsoW / 2, torsoY, torsoW, torsoH, 4 * s); ctx.fill();
   ctx.fillStyle = def.dark;
@@ -287,14 +324,24 @@ function drawNinja(ctx, cx, fy, kind, pose, animT, scale = 1) {
   ctx.fillStyle = def.light;
   ctx.beginPath(); ctx.arc(0, torsoY + torsoH / 2 - 2 * s, 4 * s, 0, Math.PI * 2); ctx.fill();
 
-  const armW = 7 * s, armH = 18 * s;
-  const aSwing = pose.armSwing * 5 * s;
-  ctx.fillStyle = def.color;
-  roundRect(ctx, -torsoW / 2 - armW + 1 * s, torsoY + 2 * s - aSwing, armW, armH, 3 * s); ctx.fill();
-  roundRect(ctx, torsoW / 2 - 1 * s, torsoY + 2 * s + aSwing, armW, armH, 3 * s); ctx.fill();
-  ctx.fillStyle = def.skin;
-  ctx.beginPath(); ctx.arc(-torsoW / 2 - armW / 2 + 1 * s, torsoY + 2 * s - aSwing + armH, 3.5 * s, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(torsoW / 2 + armW / 2 - 1 * s, torsoY + 2 * s + aSwing + armH, 3.5 * s, 0, Math.PI * 2); ctx.fill();
+  const armW = 7 * s, armH = 18 * s, shoulderY = -40 * s;
+  const armLiftL = Math.max(0, Math.min(1, pose.armLiftL ?? Math.max(0, -(pose.armSwing || 0)) * 0.5));
+  const armLiftR = Math.max(0, Math.min(1, pose.armLiftR ?? Math.max(0, pose.armSwing || 0) * 0.5));
+  const armAngleL = pose.armAngleL ?? 0.2 + (pose.armSwing || 0) * 0.25;
+  const armAngleR = pose.armAngleR ?? 0.2 - (pose.armSwing || 0) * 0.25;
+  const drawArm = (side, lift, angle) => {
+    const len = armH * (1 - lift * 0.35);
+    ctx.save();
+    ctx.translate(side * 14 * s, shoulderY);
+    ctx.rotate(-side * angle);
+    ctx.fillStyle = def.color;
+    roundRect(ctx, -armW / 2, 0, armW, len, 3 * s); ctx.fill();
+    ctx.fillStyle = def.skin;
+    ctx.beginPath(); ctx.arc(0, len, 3.5 * s, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  };
+  drawArm(-1, armLiftL, armAngleL);
+  drawArm(1, armLiftR, armAngleR);
 
   const head = 24 * s, headY = torsoY - head + 2 * s;
   ctx.fillStyle = def.skin;

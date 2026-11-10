@@ -41,7 +41,7 @@ class Game {
     this.score = 0;
     this.coins = 0;
     this.lives = 3;
-    this.spawnGap = 360 * this.diff.spawnGapMul; // z 间距
+    this.spawnGap = this.speed * this.diff.gapFrames; // z 间距（保证一次动作结束后才到下一波）
     this.sinceSpawn = 400;   // 起步先空一段
     this.scrollZ = 0;
     this.flashAmt = 0;
@@ -276,7 +276,7 @@ class Game {
     if (this.sinceSpawn >= this.spawnGap) {
       this.spawnWave();
       this.sinceSpawn = 0;
-      this.spawnGap = Math.max(230, 420 - this.speed * 6) * this.diff.spawnGapMul;
+      this.spawnGap = this.speed * this.diff.gapFrames;
     }
     for (const o of this.obstacles) o.update(move);
 
